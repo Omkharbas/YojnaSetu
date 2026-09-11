@@ -4,41 +4,82 @@
 
 > ⚠️ **Prototype Disclaimer:** The scheme knowledge base (`backend/schemes.json`) is **sample/demo data** built for this hackathon prototype. Eligibility rules, benefit amounts, and document requirements are illustrative and must be verified against official Government of India / Maharashtra portals before real-world use.
 
----
+
 
 ## 1. Project Structure
 
 ```
 civicbenefit-ai/
-├── backend/
-│   ├── main.py                     # FastAPI app + agentic pipeline orchestration
-│   ├── models.py                   # Pydantic models (CitizenProfile, requests)
-│   ├── schemes.json                # Scheme knowledge base (24 sample schemes)
-│   ├── requirements.txt
-│   └── services/
-│       ├── eligibility_engine.py   # Rule-based explainable eligibility reasoning
-│       ├── conflict_detector.py    # Scheme conflict detection
-│       ├── optimizer.py            # Bundle optimization (scoring + greedy selection)
-│       ├── document_checker.py     # Missing-document detection
-│       └── recommendation_engine.py# Explanations + application checklist generator
-└── frontend/
-    ├── index.html
-    ├── package.json / vite.config.js / tailwind.config.js
-    └── src/
-        ├── App.jsx, main.jsx, index.css
-        ├── context/AppContext.jsx  # Global profile + analysis state (+ localStorage)
-        ├── services/api.js         # REST API client
-        ├── components/             # Navbar, SummaryCard, SchemeReasoningCard, UI atoms
-        └── pages/
-            ├── Landing.jsx
-            ├── Profile.jsx          # Citizen profile form + "Load Demo Citizen"
-            ├── Analysis.jsx         # Animated agentic pipeline
-            ├── Dashboard.jsx        # Eligibility / Conflicts / Bundle tabs
-            ├── SchemeExplorer.jsx   # Search & filter knowledge base
-            └── ApplicationPlanner.jsx # Checklist + missing documents
+│
+├── 📄 README.md
+├── 📄 .gitignore
+│
+├── 📁 frontend/
+│   │
+│   ├── 📄 package.json
+│   ├── 📄 package-lock.json
+│   ├── 📄 vite.config.js
+│   ├── 📄 tailwind.config.js
+│   ├── 📄 postcss.config.js
+│   ├── 📄 index.html
+│   │
+│   └── 📁 src/
+│       │
+│       ├── 📄 main.jsx
+│       ├── 📄 App.jsx
+│       ├── 📄 index.css
+│       │
+│       ├── 📁 components/
+│       │   ├── 📄 Navbar.jsx
+│       │   ├── 📄 ProtectedRoute.jsx
+│       │   └── 📄 ...
+│       │
+│       ├── 📁 context/
+│       │   ├── 📄 AppContext.jsx
+│       │   └── 📄 AuthContext.jsx
+│       │
+│       ├── 📁 pages/
+│       │   ├── 📄 Landing.jsx
+│       │   ├── 📄 Auth.jsx
+│       │   ├── 📄 Profile.jsx
+│       │   ├── 📄 EditProfile.jsx
+│       │   ├── 📄 Analysis.jsx
+│       │   ├── 📄 Dashboard.jsx
+│       │   ├── 📄 SchemeExplorer.jsx
+│       │   └── 📄 ApplicationPlanner.jsx
+│       │
+│       └── 📁 services/
+│           └── 📄 api.js
+│
+│
+├── 📁 backend/
+│   │
+│   ├── 📄 main.py
+│   ├── 📄 models.py
+│   ├── 📄 schemes.json
+│   ├── 📄 requirements.txt
+│   ├── 📄 .env
+│   ├── 📄 .env.example
+│   │
+│   ├── 📁 auth/
+│   │   ├── 📄 __init__.py
+│   │   ├── 📄 auth.py
+│   │   └── 📄 email_service.py
+│   │
+│   └── 📁 services/
+│       ├── 📄 __init__.py
+│       ├── 📄 eligibility_engine.py
+│       ├── 📄 conflict_detector.py
+│       ├── 📄 recommendation_engine.py
+│       ├── 📄 optimizer.py
+│       └── 📄 document_checker.py
+│
+└── 📁 docs/
+    ├── 📄 project-overview.md
+    ├── 📄 architecture.md
+    └── 📄 API-documentation.md
 ```
 
----
 
 ## 2. Installation (Windows + VS Code)
 
