@@ -1,4 +1,4 @@
-# CivicBenefit AI
+# YojnaSetu
 ### Your AI-powered government scheme eligibility & benefits optimizer
 **PS16 — Autonomous Scheme-Bundle Optimizer for Citizens**
 
