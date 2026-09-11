@@ -5,7 +5,9 @@ import {
   CheckCircle2,
   Mail,
   ShieldCheck,
+  UserPlus,
 } from "lucide-react";
+
 import { useAuth } from "../context/AuthContext";
 
 export default function Auth({ mode = "login" }) {
@@ -20,6 +22,9 @@ export default function Auth({ mode = "login" }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
+  const [accountNotFound, setAccountNotFound] =
+    useState(false);
+
   const {
     signup,
     sendLoginOtp,
@@ -29,6 +34,25 @@ export default function Auth({ mode = "login" }) {
   const navigate = useNavigate();
   const location = useLocation();
 
+  // =====================================================
+  // SWITCH LOGIN / SIGNUP
+  // =====================================================
+
+  const switchToSignup = () => {
+    setIsSignup(true);
+    setStep("email");
+    setError("");
+    setOtp("");
+    setAccountNotFound(false);
+  };
+
+  const switchToLogin = () => {
+    setIsSignup(false);
+    setStep("email");
+    setError("");
+    setOtp("");
+    setAccountNotFound(false);
+  };
 
   // =====================================================
   // SEND OTP
@@ -38,8 +62,13 @@ export default function Auth({ mode = "login" }) {
     e.preventDefault();
 
     setError("");
+    setAccountNotFound(false);
 
-    if (!email.trim()) {
+    const normalizedEmail = email
+      .toLowerCase()
+      .trim();
+
+    if (!normalizedEmail) {
       return setError(
         "Please enter your email address."
       );
@@ -55,16 +84,131 @@ export default function Auth({ mode = "login" }) {
 
     try {
       if (isSignup) {
-        await signup(name, email);
+        // -----------------------------------------------
+        // CREATE ACCOUNT
+        // -----------------------------------------------
+
+        await signup(
+          name.trim(),
+          normalizedEmail
+        );
+
       } else {
-        await sendLoginOtp(email);
+        // -----------------------------------------------
+        // LOGIN
+        // -----------------------------------------------
+
+        await sendLoginOtp(normalizedEmail);
       }
 
+      setEmail(normalizedEmail);
       setStep("otp");
 
     } catch (err) {
+
+      const message =
+        err?.message ||
+        "Unable to send OTP.";
+
+      // -----------------------------------------------
+      // NEW EMAIL DURING LOGIN
+      // -----------------------------------------------
+
+      if (
+        !isSignup &&
+        (
+          message
+            .toLowerCase()
+            .includes("no account") ||
+          message
+            .toLowerCase()
+            .includes("sign up first") ||
+          message
+            .toLowerCase()
+            .includes("not found")
+        )
+      ) {
+        setAccountNotFound(true);
+
+        setError(
+          "We couldn't find an account with this email."
+        );
+
+      } else {
+
+        setError(message);
+
+      }
+
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // =====================================================
+  // VERIFY OTP
+  // =====================================================
+
+  const verify = async (e) => {
+    e.preventDefault();
+
+    setError("");
+
+    if (!/^\d{6}$/.test(otp)) {
+      return setError(
+        "Enter the 6-digit OTP."
+      );
+    }
+
+    setLoading(true);
+
+    try {
+      await verifyOtp(
+        email.toLowerCase().trim(),
+        otp
+      );
+
+      const normalizedEmail =
+        email.toLowerCase().trim();
+
+      // -----------------------------------------------
+      // NEW ACCOUNT
+      // -----------------------------------------------
+
+      if (isSignup) {
+
+        localStorage.setItem(
+          `civicbenefit_setup_required_${normalizedEmail}`,
+          "true"
+        );
+
+        navigate(
+          "/profile/setup",
+          {
+            replace: true,
+          }
+        );
+
+      } else {
+
+        // ---------------------------------------------
+        // EXISTING ACCOUNT
+        // ---------------------------------------------
+
+        navigate(
+          location.state?.from ||
+            "/dashboard",
+          {
+            replace: true,
+          }
+        );
+      }
+
+    } catch (err) {
+
       setError(
-        err.message || "Unable to send OTP."
+        err?.message ||
+          "Invalid OTP."
       );
 
     } finally {
@@ -72,59 +216,14 @@ export default function Auth({ mode = "login" }) {
     }
   };
 
-
   // =====================================================
-  // VERIFY OTP
+  // UI
   // =====================================================
-
- const verify = async (e) => {
-  e.preventDefault();
-
-  setError("");
-
-  if (!/^\d{6}$/.test(otp)) {
-    return setError("Enter the 6-digit OTP.");
-  }
-
-  setLoading(true);
-
-  try {
-    await verifyOtp(email, otp);
-
-    const normalizedEmail = email.toLowerCase().trim();
-
-    if (isSignup) {
-      // New signup: basic profile is compulsory
-      localStorage.setItem(
-        `civicbenefit_setup_required_${normalizedEmail}`,
-        "true"
-      );
-
-      navigate("/profile/setup", {
-        replace: true,
-      });
-    } else {
-      // Existing user: login normally
-      navigate(
-        location.state?.from || "/dashboard",
-        { replace: true }
-      );
-    }
-
-  } catch (err) {
-    setError(
-      err.message || "Invalid OTP."
-    );
-  } finally {
-    setLoading(false);
-  }
-};
 
   return (
     <main className="min-h-[calc(100vh-73px)] bg-gradient-to-br from-brand-50 via-white to-slate-50 px-4 py-12">
 
       <div className="mx-auto grid max-w-5xl overflow-hidden rounded-3xl border border-slate-100 bg-white shadow-xl md:grid-cols-2">
-
 
         {/* =================================================
             LEFT SIDE
@@ -142,7 +241,6 @@ export default function Auth({ mode = "login" }) {
 
           </div>
 
-
           <h1 className="mt-20 text-4xl font-bold leading-tight">
 
             Government benefits,
@@ -151,15 +249,13 @@ export default function Auth({ mode = "login" }) {
 
           </h1>
 
-
           <p className="mt-5 text-brand-100">
 
-            Securely access your personalized citizen
-            benefits assistant and discover schemes you
-            may qualify for.
+            Securely access your personalized
+            citizen benefits assistant and discover
+            schemes you may qualify for.
 
           </p>
-
 
           <div className="mt-10 space-y-4 text-sm text-brand-50">
 
@@ -195,7 +291,6 @@ export default function Auth({ mode = "login" }) {
 
           <div className="mx-auto max-w-md">
 
-
             {/* Mobile logo */}
 
             <div className="mb-8 flex items-center gap-2 text-brand-700 md:hidden">
@@ -208,6 +303,8 @@ export default function Auth({ mode = "login" }) {
 
             </div>
 
+
+            {/* Header */}
 
             <p className="text-sm font-semibold text-brand-600">
 
@@ -261,6 +358,60 @@ export default function Auth({ mode = "login" }) {
 
 
             {/* =================================================
+                ACCOUNT NOT FOUND
+            ================================================= */}
+
+            {accountNotFound && !isSignup && (
+
+              <div className="mt-4 rounded-2xl border border-brand-100 bg-brand-50 p-4">
+
+                <div className="flex gap-3">
+
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white text-brand-700 shadow-sm">
+
+                    <UserPlus size={20} />
+
+                  </div>
+
+
+                  <div>
+
+                    <p className="font-semibold text-slate-900">
+
+                      No account found
+
+                    </p>
+
+                    <p className="mt-1 text-xs leading-5 text-slate-600">
+
+                      This email isn't registered
+                      with CivicBenefit AI.
+
+                    </p>
+
+                  </div>
+
+                </div>
+
+
+                <button
+                  type="button"
+                  onClick={switchToSignup}
+                  className="btn-primary mt-4 w-full"
+                >
+
+                  <UserPlus size={17} />
+
+                  Create Account
+
+                </button>
+
+              </div>
+
+            )}
+
+
+            {/* =================================================
                 EMAIL STEP
             ================================================= */}
 
@@ -270,7 +421,6 @@ export default function Auth({ mode = "login" }) {
                 onSubmit={send}
                 className="mt-7 space-y-5"
               >
-
 
                 {/* FULL NAME */}
 
@@ -286,7 +436,9 @@ export default function Auth({ mode = "login" }) {
                       className="input-field"
                       value={name}
                       onChange={(e) =>
-                        setName(e.target.value)
+                        setName(
+                          e.target.value
+                        )
                       }
                       placeholder="Enter your full name"
                       autoComplete="name"
@@ -297,16 +449,13 @@ export default function Auth({ mode = "login" }) {
                 )}
 
 
-                {/* =================================================
-                    EMAIL
-                ================================================= */}
+                {/* EMAIL */}
 
                 <div>
 
                   <label className="label-field">
                     Email Address
                   </label>
-
 
                   <div className="relative">
 
@@ -315,13 +464,17 @@ export default function Auth({ mode = "login" }) {
                       className="pointer-events-none absolute left-4 top-1/2 z-10 -translate-y-1/2 text-slate-400"
                     />
 
-
                     <input
                       type="email"
                       value={email}
-                      onChange={(e) =>
-                        setEmail(e.target.value)
-                      }
+                      onChange={(e) => {
+                        setEmail(
+                          e.target.value
+                        );
+
+                        setError("");
+                        setAccountNotFound(false);
+                      }}
                       placeholder="you@example.com"
                       autoComplete="email"
                       className="input-field"
@@ -345,7 +498,9 @@ export default function Auth({ mode = "login" }) {
 
                   {loading
                     ? "Sending OTP…"
-                    : "Send OTP"}
+                    : isSignup
+                      ? "Create Account"
+                      : "Send OTP"}
 
                   <ArrowRight size={18} />
 
@@ -354,7 +509,6 @@ export default function Auth({ mode = "login" }) {
               </form>
 
             ) : (
-
 
               /* =================================================
                  OTP STEP
@@ -439,12 +593,7 @@ export default function Auth({ mode = "login" }) {
                   <button
                     type="button"
                     className="font-bold text-brand-700"
-                    onClick={() => {
-                      setIsSignup(false);
-                      setStep("email");
-                      setError("");
-                      setOtp("");
-                    }}
+                    onClick={switchToLogin}
                   >
                     Log in
                   </button>
@@ -458,12 +607,7 @@ export default function Auth({ mode = "login" }) {
                   <button
                     type="button"
                     className="font-bold text-brand-700"
-                    onClick={() => {
-                      setIsSignup(true);
-                      setStep("email");
-                      setError("");
-                      setOtp("");
-                    }}
+                    onClick={switchToSignup}
                   >
                     Create account
                   </button>
