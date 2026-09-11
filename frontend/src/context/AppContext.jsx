@@ -2,268 +2,220 @@ import React, {
   createContext,
   useContext,
   useEffect,
+  useRef,
   useState,
 } from "react";
 
 import { useAuth } from "./AuthContext";
+import {
+  getProfile,
+  saveProfile as saveProfileToServer,
+} from "../services/api";
 
 const AppContext = createContext(null);
 
-export const DEFAULT_PROFILE = {
+const DEFAULT_PROFILE = {
   name: "",
-  age: "",
-  gender: "",
-  state: "",
+  age: 18,
+  gender: "Male",
+  state: "Maharashtra",
   district: "",
-  marital_status: "",
-
-  annual_income: "",
-  employment_status: "",
+  marital_status: "Single",
+  annual_income: 0,
+  employment_status: "Unemployed",
   bpl_status: false,
-  income_category: "",
-
-  category: "",
+  income_category: "APL",
+  category: "General",
   disability_status: false,
   minority_status: false,
-  family_members: "",
-  children: "",
-  girl_children: "",
+  family_members: 1,
+  children: 0,
+  girl_children: 0,
   pregnant_or_lactating: false,
-
   education_level: "",
   student_status: false,
   course: "",
   institution_type: "",
-
-  occupation: "",
-
+  occupation: "Unemployed",
   owns_house: false,
   rural: true,
   homeless: false,
-
   owns_land: false,
   health_insurance: false,
-
   documents: [],
   bank_account: false,
 };
 
 export function AppProvider({ children }) {
-  const { user } = useAuth();
+  const { user, isAuthenticated } = useAuth();
 
-  /*
-   * =====================================================
-   * USER-SPECIFIC STORAGE KEYS
-   * =====================================================
-   */
-
-  const email = user?.email?.toLowerCase().trim();
-
-  const profileKey = email
-    ? `civicbenefit_profile_${email}`
-    : null;
-
-  const analysisKey = email
-    ? `civicbenefit_analysis_${email}`
-    : null;
-
-  /*
-   * =====================================================
-   * STATE
-   * =====================================================
-   */
-
-  const [profile, setProfile] = useState(DEFAULT_PROFILE);
-
+  const [profile, setProfileState] =
+    useState(DEFAULT_PROFILE);
   const [analysis, setAnalysis] = useState(null);
+  const [completedSteps, setCompletedSteps] =
+    useState({});
+  const [profileLoaded, setProfileLoaded] =
+    useState(false);
 
-  const [completedSteps, setCompletedSteps] = useState({});
+  const skipNextSave = useRef(false);
 
-  const [profileLoaded, setProfileLoaded] = useState(false);
-
-  /*
-   * =====================================================
-   * LOAD USER DATA
-   * =====================================================
-   */
-
+  // Load this user's profile from SQLite after login.
   useEffect(() => {
-    if (!email) {
-      setProfile(DEFAULT_PROFILE);
-      setAnalysis(null);
-      setCompletedSteps({});
-      setProfileLoaded(false);
-      return;
-    }
+    let cancelled = false;
 
-    try {
-      /*
-       * -------------------------
-       * LOAD PROFILE
-       * -------------------------
-       */
-
-      const savedProfile = localStorage.getItem(profileKey);
-
-      if (savedProfile) {
-        const parsedProfile = JSON.parse(savedProfile);
-
-        setProfile({
-          ...DEFAULT_PROFILE,
-          ...parsedProfile,
-        });
-      } else {
-        setProfile(DEFAULT_PROFILE);
+    async function loadProfile() {
+      if (!isAuthenticated || !user?.email) {
+        setProfileState(DEFAULT_PROFILE);
+        setProfileLoaded(false);
+        setAnalysis(null);
+        return;
       }
 
-      /*
-       * -------------------------
-       * LOAD ANALYSIS
-       * -------------------------
-       */
+      setProfileLoaded(false);
 
-      const savedAnalysis = localStorage.getItem(analysisKey);
+      try {
+        const result = await getProfile();
 
-      if (savedAnalysis) {
-        try {
-          setAnalysis(JSON.parse(savedAnalysis));
-        } catch (error) {
-          console.error(
-            "Failed to parse saved analysis:",
-            error
-          );
+        if (cancelled) return;
 
+        skipNextSave.current = true;
+
+        if (result.exists && result.profile) {
+          setProfileState({
+            ...DEFAULT_PROFILE,
+            ...result.profile,
+          });
+        } else {
+          setProfileState({
+            ...DEFAULT_PROFILE,
+            name: user.name || "",
+          });
+        }
+
+        const savedAnalysis = localStorage.getItem(
+          `civicbenefit_analysis_${user.email}`
+        );
+
+        if (savedAnalysis) {
+          try {
+            setAnalysis(JSON.parse(savedAnalysis));
+          } catch {
+            setAnalysis(null);
+          }
+        } else {
           setAnalysis(null);
         }
-      } else {
-        setAnalysis(null);
-      }
-
-      /*
-       * -------------------------
-       * RESET TEMPORARY STEPS
-       * -------------------------
-       */
-
-      setCompletedSteps({});
-
-      /*
-       * IMPORTANT:
-       * Data has finished loading.
-       */
-
-      setProfileLoaded(true);
-
-    } catch (error) {
-      console.error(
-        "Failed to load user data:",
-        error
-      );
-
-      setProfile(DEFAULT_PROFILE);
-      setAnalysis(null);
-      setCompletedSteps({});
-      setProfileLoaded(true);
-    }
-
-  }, [email, profileKey, analysisKey]);
-
-  /*
-   * =====================================================
-   * SAVE PROFILE
-   * =====================================================
-   */
-
-  useEffect(() => {
-    if (!profileKey || !profileLoaded) {
-      return;
-    }
-
-    try {
-      localStorage.setItem(
-        profileKey,
-        JSON.stringify(profile)
-      );
-    } catch (error) {
-      console.error(
-        "Failed to save profile:",
-        error
-      );
-    }
-
-  }, [profile, profileKey, profileLoaded]);
-
-  /*
-   * =====================================================
-   * SAVE ANALYSIS
-   * =====================================================
-   */
-
-  useEffect(() => {
-    if (!analysisKey || !profileLoaded) {
-      return;
-    }
-
-    /*
-     * If analysis exists, save it.
-     */
-
-    if (analysis) {
-      try {
-        localStorage.setItem(
-          analysisKey,
-          JSON.stringify(analysis)
-        );
       } catch (error) {
         console.error(
-          "Failed to save analysis:",
+          "Could not load profile from database:",
+          error
+        );
+
+        const saved = localStorage.getItem(
+          `civicbenefit_profile_${user.email}`
+        );
+
+        skipNextSave.current = true;
+
+        if (saved) {
+          try {
+            setProfileState({
+              ...DEFAULT_PROFILE,
+              ...JSON.parse(saved),
+            });
+          } catch {
+            setProfileState({
+              ...DEFAULT_PROFILE,
+              name: user.name || "",
+            });
+          }
+        } else {
+          setProfileState({
+            ...DEFAULT_PROFILE,
+            name: user.name || "",
+          });
+        }
+      } finally {
+        if (!cancelled) setProfileLoaded(true);
+      }
+    }
+
+    loadProfile();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isAuthenticated, user?.email, user?.name]);
+
+  // Persist profile locally and to SQLite.
+  useEffect(() => {
+    if (
+      !isAuthenticated ||
+      !user?.email ||
+      !profileLoaded
+    ) {
+      return;
+    }
+
+    const emailKey = user.email.toLowerCase().trim();
+
+    localStorage.setItem(
+      `civicbenefit_profile_${emailKey}`,
+      JSON.stringify(profile)
+    );
+
+    // Skip saving the initial database load.
+    if (skipNextSave.current) {
+      skipNextSave.current = false;
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      try {
+        await saveProfileToServer(profile);
+      } catch (error) {
+        console.error(
+          "Could not save profile to database:",
           error
         );
       }
+    }, 500);
 
+    return () => clearTimeout(timer);
+  }, [
+    profile,
+    profileLoaded,
+    isAuthenticated,
+    user?.email,
+  ]);
+
+  // Keep analysis isolated per account.
+  useEffect(() => {
+    if (
+      !isAuthenticated ||
+      !user?.email ||
+      !analysis
+    ) {
+      return;
     }
 
-  }, [analysis, analysisKey, profileLoaded]);
-
-  /*
-   * =====================================================
-   * CHECK PROFILE COMPLETION
-   * =====================================================
-   */
-
-  const isProfileComplete = Boolean(
-    profile.name?.trim() &&
-    Number(profile.age) > 0 &&
-    profile.gender &&
-    profile.state?.trim() &&
-    profile.district?.trim() &&
-    profile.annual_income !== "" &&
-    profile.annual_income !== null &&
-    profile.annual_income !== undefined &&
-    profile.category &&
-    profile.occupation
-  );
-
-  /*
-   * =====================================================
-   * PROVIDER
-   * =====================================================
-   */
+    localStorage.setItem(
+      `civicbenefit_analysis_${user.email}`,
+      JSON.stringify(analysis)
+    );
+  }, [analysis, isAuthenticated, user?.email]);
 
   return (
     <AppContext.Provider
       value={{
         profile,
-        setProfile,
-
+        setProfile: setProfileState,
+        saveProfile: saveProfileToServer,
+        profileLoaded,
         analysis,
         setAnalysis,
-
         completedSteps,
         setCompletedSteps,
-
-        isProfileComplete,
-
         DEFAULT_PROFILE,
       }}
     >
@@ -271,12 +223,6 @@ export function AppProvider({ children }) {
     </AppContext.Provider>
   );
 }
-
-/*
- * =====================================================
- * useApp HOOK
- * =====================================================
- */
 
 export function useApp() {
   const ctx = useContext(AppContext);

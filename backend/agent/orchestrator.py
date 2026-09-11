@@ -65,30 +65,37 @@ class CivicBenefitAgent:
             temperature=0,
         )
 
-    @staticmethod
     def _build_result(
+        self,
         profile: Dict[str, Any],
         schemes: List[Dict[str, Any]],
         context: Dict[str, Any],
     ) -> Dict[str, Any]:
         """Convert tool state into the response shape expected by the frontend."""
 
-        evaluations = context.get("evaluations", [])
-        eligible = [e for e in evaluations if e["status"] == "ELIGIBLE"]
-        potentially_eligible = [
+        evaluations = context.get("evaluations") or []
+
+        eligible = [
             e for e in evaluations
-            if e["status"] == "POTENTIALLY_ELIGIBLE"
-        ]
-        needs_verification = [
-            e for e in evaluations
-            if e["status"] == "NEEDS_VERIFICATION"
-        ]
-        not_eligible = [
-            e for e in evaluations
-            if e["status"] == "NOT_ELIGIBLE"
+            if e.get("status") == "ELIGIBLE"
         ]
 
-        conflicts = context.get("conflicts", [])
+        potentially_eligible = [
+            e for e in evaluations
+            if e.get("status") == "POTENTIALLY_ELIGIBLE"
+        ]
+
+        needs_verification = [
+            e for e in evaluations
+            if e.get("status") == "NEEDS_VERIFICATION"
+        ]
+
+        not_eligible = [
+            e for e in evaluations
+            if e.get("status") == "NOT_ELIGIBLE"
+        ]
+
+        conflicts = context.get("conflicts") or []
 
         bundle_result = context.get(
             "bundle_result",
@@ -112,6 +119,7 @@ class CivicBenefitAgent:
         )
 
         explanations = context.get("explanations", [])
+
         application_plan = context.get(
             "application_plan",
             {
@@ -129,32 +137,55 @@ class CivicBenefitAgent:
                 "determination. Citizens should verify eligibility and application "
                 "requirements through official government sources."
             ),
+
             "summary": {
                 "schemes_analyzed": len(schemes),
                 "potentially_eligible": (
                     len(eligible) + len(potentially_eligible)
                 ),
                 "conflicts_detected": len(conflicts),
-                "recommended_schemes": len(bundle_result.get("bundle", [])),
-                "documents_missing": documents.get("total_missing", 0),
+                "recommended_schemes": len(
+                    bundle_result.get("bundle", [])
+                ),
+                "documents_missing": documents.get(
+                    "total_missing",
+                    0,
+                ),
             },
+
             "eligibility": {
                 "eligible": eligible,
                 "potentially_eligible": potentially_eligible,
                 "needs_verification": needs_verification,
                 "not_eligible": not_eligible,
             },
+
             "conflicts": conflicts,
             "bundle": bundle_result,
             "documents": documents,
             "explanations": explanations,
             "application_plan": application_plan,
-            "agent_activity_log": context.get("activity_log", []),
+
+            # Existing activity log
+            "agent_activity_log": context.get(
+                "activity_log",
+                [],
+            ),
+
+            # NEW: actual tool-call information for frontend
+            "agent_tool_calls": context.get(
+                "tool_calls",
+                [],
+            ),
+
             "agent": {
                 "name": "YojnaSetu Agent",
                 "framework": "LangChain",
                 "model": self.model_name,
-                "mode": context.get("mode", "deterministic-fallback"),
+                "mode": context.get(
+                    "mode",
+                    "deterministic-fallback",
+                ),
             },
         }
 
@@ -168,44 +199,129 @@ class CivicBenefitAgent:
 
         activity = context["activity_log"]
 
-        if "evaluations" not in context:
-            context["evaluations"] = eligibility_engine.evaluate_all_schemes(
-                schemes,
-                profile,
-            )
-            activity.append("Eligibility Reasoner completed")
+        # ---------------------------------------------------------
+        # ELIGIBILITY
+        # ---------------------------------------------------------
 
-        if "conflicts" not in context:
-            context["conflicts"] = conflict_detector.detect_conflicts(
-                context["evaluations"]
+        if context.get("evaluations") is None:
+            context["evaluations"] = (
+                eligibility_engine.evaluate_all_schemes(
+                    schemes,
+                    profile,
+                )
             )
+
+            activity.append(
+                "Eligibility Reasoner completed"
+            )
+
+            context["tool_calls"].append(
+                {
+                    "tool": "evaluate_scheme_eligibility()",
+                    "status": "completed",
+                    "message": (
+                        f"{len(context['evaluations'])} schemes evaluated"
+                    ),
+                }
+            )
+
+        # ---------------------------------------------------------
+        # CONFLICT DETECTOR
+        # ---------------------------------------------------------
+
+        if context.get("conflicts") is None:
+            context["conflicts"] = (
+                conflict_detector.detect_conflicts(
+                    context["evaluations"]
+                )
+            )
+
             activity.append(
                 f"{len(context['conflicts'])} potential conflict(s) detected"
             )
 
-        if "bundle_result" not in context:
-            context["bundle_result"] = optimizer.optimize_bundle(
-                context["evaluations"],
-                profile,
+            context["tool_calls"].append(
+                {
+                    "tool": "detect_scheme_conflicts()",
+                    "status": "completed",
+                    "message": (
+                        f"{len(context['conflicts'])} potential "
+                        "conflict(s) detected"
+                    ),
+                }
             )
-            activity.append("Benefit Optimizer selected the best compatible bundle")
 
-        if "documents" not in context:
-            context["documents"] = document_checker.check_documents(
-                context["bundle_result"]["bundle"],
-                profile.get("documents", []),
+        # ---------------------------------------------------------
+        # OPTIMIZER
+        # ---------------------------------------------------------
+
+        if context.get("bundle_result") is None:
+            context["bundle_result"] = (
+                optimizer.optimize_bundle(
+                    context["evaluations"],
+                    profile,
+                )
             )
+
             activity.append(
-                f"{context['documents']['total_missing']} missing document(s) identified"
+                "Benefit Optimizer selected the best compatible bundle"
             )
 
-        if "explanations" not in context:
-            context["explanations"] = recommendation_engine.build_explanations(
-                context["bundle_result"]["bundle"],
-                profile,
+            context["tool_calls"].append(
+                {
+                    "tool": "optimize_scheme_bundle()",
+                    "status": "completed",
+                    "message": (
+                        "Best compatible scheme bundle selected"
+                    ),
+                }
             )
 
-        if "application_plan" not in context:
+        # ---------------------------------------------------------
+        # DOCUMENT CHECKER
+        # ---------------------------------------------------------
+
+        if context.get("documents") is None:
+            context["documents"] = (
+                document_checker.check_documents(
+                    context["bundle_result"]["bundle"],
+                    profile.get("documents", []),
+                )
+            )
+
+            activity.append(
+                f"{context['documents']['total_missing']} "
+                "missing document(s) identified"
+            )
+
+            context["tool_calls"].append(
+                {
+                    "tool": "check_required_documents()",
+                    "status": "completed",
+                    "message": (
+                        f"{context['documents']['total_missing']} "
+                        "missing document(s) identified"
+                    ),
+                }
+            )
+
+        # ---------------------------------------------------------
+        # EXPLANATIONS
+        # ---------------------------------------------------------
+
+        if context.get("explanations") is None:
+            context["explanations"] = (
+                recommendation_engine.build_explanations(
+                    context["bundle_result"]["bundle"],
+                    profile,
+                )
+            )
+
+        # ---------------------------------------------------------
+        # APPLICATION PLAN
+        # ---------------------------------------------------------
+
+        if context.get("application_plan") is None:
             context["application_plan"] = (
                 recommendation_engine.generate_application_plan(
                     context["bundle_result"]["bundle"],
@@ -213,7 +329,22 @@ class CivicBenefitAgent:
                     profile,
                 )
             )
-            activity.append("Application plan generated")
+
+            activity.append(
+                "Application plan generated"
+            )
+
+            context["tool_calls"].append(
+                {
+                    "tool": (
+                        "generate_recommendations_and_application_plan()"
+                    ),
+                    "status": "completed",
+                    "message": (
+                        "Recommendations and application plan generated"
+                    ),
+                }
+            )
 
     def run(
         self,
@@ -221,9 +352,15 @@ class CivicBenefitAgent:
         schemes: List[Dict[str, Any]],
     ) -> Dict[str, Any]:
         """
-        Run the LangChain agent first. Tool state is kept per request, so
-        different citizens cannot share analysis state.
+        Run the LangChain agent first.
+
+        Tool state is kept per request, so different citizens
+        cannot share analysis state.
         """
+
+        # =========================================================
+        # REQUEST-SCOPED CONTEXT
+        # =========================================================
 
         context: Dict[str, Any] = {
             "evaluations": None,
@@ -232,13 +369,42 @@ class CivicBenefitAgent:
             "documents": None,
             "explanations": None,
             "application_plan": None,
-            "activity_log": ["Profile Analyzer started"],
+
+            "activity_log": [
+                "Profile Analyzer started"
+            ],
+
+            # NEW: frontend tool-call data
+            "tool_calls": [],
+
             "mode": "langchain-agent",
         }
+
+        # =========================================================
+        # HELPER
+        # =========================================================
+
+        def record_tool_call(
+            tool_name: str,
+            status: str,
+            message: str,
+        ):
+            context["tool_calls"].append(
+                {
+                    "tool": tool_name,
+                    "status": status,
+                    "message": message,
+                }
+            )
+
+        # =========================================================
+        # TOOL 1 — PROFILE ANALYZER
+        # =========================================================
 
         @tool
         def analyze_citizen_profile() -> str:
             """Analyze and validate the citizen profile before scheme evaluation."""
+
             required = [
                 "name",
                 "age",
@@ -251,15 +417,27 @@ class CivicBenefitAgent:
             ]
 
             missing = [
-                field for field in required
+                field
+                for field in required
                 if profile.get(field) is None
                 or profile.get(field) == ""
             ]
 
             if missing:
+
                 context["activity_log"].append(
                     "Profile Analyzer found missing profile fields"
                 )
+
+                record_tool_call(
+                    "analyze_citizen_profile()",
+                    "warning",
+                    (
+                        "Missing profile fields: "
+                        + ", ".join(missing)
+                    ),
+                )
+
                 return json.dumps(
                     {
                         "status": "needs_more_profile_data",
@@ -267,7 +445,16 @@ class CivicBenefitAgent:
                     }
                 )
 
-            context["activity_log"].append("Profile analyzed")
+            context["activity_log"].append(
+                "Profile analyzed"
+            )
+
+            record_tool_call(
+                "analyze_citizen_profile()",
+                "completed",
+                "Citizen profile analyzed and validated",
+            )
+
             return json.dumps(
                 {
                     "status": "profile_ready",
@@ -277,28 +464,49 @@ class CivicBenefitAgent:
                 }
             )
 
+        # =========================================================
+        # TOOL 2 — ELIGIBILITY
+        # =========================================================
+
         @tool
         def evaluate_scheme_eligibility() -> str:
             """Evaluate the citizen against every scheme using deterministic rules."""
-            evaluations = eligibility_engine.evaluate_all_schemes(
-                schemes,
-                profile,
+
+            evaluations = (
+                eligibility_engine.evaluate_all_schemes(
+                    schemes,
+                    profile,
+                )
             )
+
             context["evaluations"] = evaluations
 
             eligible_count = sum(
-                1 for e in evaluations if e["status"] == "ELIGIBLE"
+                1
+                for e in evaluations
+                if e.get("status") == "ELIGIBLE"
             )
+
             potential_count = sum(
                 1
                 for e in evaluations
-                if e["status"] == "POTENTIALLY_ELIGIBLE"
+                if e.get("status") == "POTENTIALLY_ELIGIBLE"
             )
 
             context["activity_log"].append(
                 f"{len(schemes)} schemes evaluated: "
                 f"{eligible_count} eligible, "
                 f"{potential_count} potentially eligible"
+            )
+
+            record_tool_call(
+                "evaluate_scheme_eligibility()",
+                "completed",
+                (
+                    f"{len(schemes)} schemes evaluated — "
+                    f"{eligible_count} eligible, "
+                    f"{potential_count} potentially eligible"
+                ),
             )
 
             return json.dumps(
@@ -309,9 +517,14 @@ class CivicBenefitAgent:
                 }
             )
 
+        # =========================================================
+        # TOOL 3 — CONFLICT DETECTOR
+        # =========================================================
+
         @tool
         def detect_scheme_conflicts() -> str:
             """Detect conflicts among eligible and potentially eligible schemes."""
+
             if context["evaluations"] is None:
                 context["evaluations"] = (
                     eligibility_engine.evaluate_all_schemes(
@@ -320,13 +533,25 @@ class CivicBenefitAgent:
                     )
                 )
 
-            conflicts = conflict_detector.detect_conflicts(
-                context["evaluations"]
+            conflicts = (
+                conflict_detector.detect_conflicts(
+                    context["evaluations"]
+                )
             )
+
             context["conflicts"] = conflicts
 
             context["activity_log"].append(
                 f"{len(conflicts)} potential conflict(s) detected"
+            )
+
+            record_tool_call(
+                "detect_scheme_conflicts()",
+                "completed",
+                (
+                    f"{len(conflicts)} potential "
+                    "conflict(s) detected"
+                ),
             )
 
             return json.dumps(
@@ -336,9 +561,14 @@ class CivicBenefitAgent:
                 }
             )
 
+        # =========================================================
+        # TOOL 4 — BENEFIT OPTIMIZER
+        # =========================================================
+
         @tool
         def optimize_scheme_bundle() -> str:
             """Select the best compatible scheme bundle using the deterministic optimizer."""
+
             if context["evaluations"] is None:
                 context["evaluations"] = (
                     eligibility_engine.evaluate_all_schemes(
@@ -347,38 +577,77 @@ class CivicBenefitAgent:
                     )
                 )
 
-            bundle_result = optimizer.optimize_bundle(
-                context["evaluations"],
-                profile,
+            bundle_result = (
+                optimizer.optimize_bundle(
+                    context["evaluations"],
+                    profile,
+                )
             )
+
             context["bundle_result"] = bundle_result
 
             context["activity_log"].append(
                 "Benefit Optimizer selected the best compatible bundle"
             )
 
+            selected_schemes = [
+                s.get("scheme_name")
+                for s in bundle_result.get(
+                    "bundle",
+                    [],
+                )
+            ]
+
+            record_tool_call(
+                "optimize_scheme_bundle()",
+                "completed",
+                (
+                    "Best compatible bundle selected"
+                    + (
+                        f": {', '.join(selected_schemes)}"
+                        if selected_schemes
+                        else ""
+                    )
+                ),
+            )
+
             return json.dumps(
                 {
-                    "selected_schemes": [
-                        s["scheme_name"]
-                        for s in bundle_result["bundle"]
-                    ],
-                    "estimated_combined_value": bundle_result[
-                        "estimated_combined_value"
-                    ],
-                    "bundle_optimization_score": bundle_result[
-                        "bundle_optimization_score"
-                    ],
+                    "selected_schemes": selected_schemes,
+
+                    "estimated_combined_value": (
+                        bundle_result.get(
+                            "estimated_combined_value",
+                            0,
+                        )
+                    ),
+
+                    "bundle_optimization_score": (
+                        bundle_result.get(
+                            "bundle_optimization_score",
+                            0,
+                        )
+                    ),
+
                     "excluded_due_to_conflict": len(
-                        bundle_result["excluded_due_to_conflict"]
+                        bundle_result.get(
+                            "excluded_due_to_conflict",
+                            [],
+                        )
                     ),
                 }
             )
 
+        # =========================================================
+        # TOOL 5 — DOCUMENT CHECKER
+        # =========================================================
+
         @tool
         def check_required_documents() -> str:
             """Check available citizen documents against bundle requirements."""
+
             if context["bundle_result"] is None:
+
                 if context["evaluations"] is None:
                     context["evaluations"] = (
                         eligibility_engine.evaluate_all_schemes(
@@ -386,30 +655,57 @@ class CivicBenefitAgent:
                             profile,
                         )
                     )
-                context["bundle_result"] = optimizer.optimize_bundle(
-                    context["evaluations"],
-                    profile,
+
+                context["bundle_result"] = (
+                    optimizer.optimize_bundle(
+                        context["evaluations"],
+                        profile,
+                    )
                 )
 
-            documents = document_checker.check_documents(
-                context["bundle_result"]["bundle"],
-                profile.get("documents", []),
+            documents = (
+                document_checker.check_documents(
+                    context["bundle_result"]["bundle"],
+                    profile.get("documents", []),
+                )
             )
+
             context["documents"] = documents
 
             context["activity_log"].append(
-                f"{documents['total_missing']} missing document(s) identified"
+                f"{documents['total_missing']} "
+                "missing document(s) identified"
+            )
+
+            record_tool_call(
+                "check_required_documents()",
+                "completed",
+                (
+                    f"{documents['total_missing']} "
+                    "missing document(s) identified"
+                ),
             )
 
             return json.dumps(documents)
 
+        # =========================================================
+        # TOOL 6 — RECOMMENDATIONS + APPLICATION PLAN
+        # =========================================================
+
         @tool
         def generate_recommendations_and_application_plan() -> str:
             """Build personalized explanations and the application checklist."""
-            if context["bundle_result"] is None:
-                self._deterministic_run(profile, schemes, context)
 
-            bundle = context["bundle_result"]["bundle"]
+            if context["bundle_result"] is None:
+                self._deterministic_run(
+                    profile,
+                    schemes,
+                    context,
+                )
+
+            bundle = (
+                context["bundle_result"]["bundle"]
+            )
 
             context["explanations"] = (
                 recommendation_engine.build_explanations(
@@ -417,6 +713,19 @@ class CivicBenefitAgent:
                     profile,
                 )
             )
+
+            # Make sure documents exist
+            if context["documents"] is None:
+
+                context["documents"] = (
+                    document_checker.check_documents(
+                        bundle,
+                        profile.get(
+                            "documents",
+                            [],
+                        ),
+                    )
+                )
 
             context["application_plan"] = (
                 recommendation_engine.generate_application_plan(
@@ -430,14 +739,29 @@ class CivicBenefitAgent:
                 "Recommendations and application plan generated"
             )
 
+            record_tool_call(
+                "generate_recommendations_and_application_plan()",
+                "completed",
+                "Recommendations and application plan generated",
+            )
+
             return json.dumps(
                 {
-                    "explanations_created": len(context["explanations"]),
-                    "application_steps": context["application_plan"][
-                        "total_steps"
-                    ],
+                    "explanations_created": len(
+                        context["explanations"]
+                    ),
+
+                    "application_steps": (
+                        context["application_plan"][
+                            "total_steps"
+                        ]
+                    ),
                 }
             )
+
+        # =========================================================
+        # TOOL LIST
+        # =========================================================
 
         tools = [
             analyze_citizen_profile,
@@ -448,7 +772,12 @@ class CivicBenefitAgent:
             generate_recommendations_and_application_plan,
         ]
 
+        # =========================================================
+        # RUN LANGCHAIN AGENT
+        # =========================================================
+
         try:
+
             agent = create_agent(
                 model=self.llm,
                 tools=tools,
@@ -478,6 +807,10 @@ Use the tools in the required order and complete the full workflow.
                 }
             )
 
+            # =====================================================
+            # VERIFY COMPLETE TOOL STATE
+            # =====================================================
+
             required_context = [
                 "evaluations",
                 "conflicts",
@@ -493,24 +826,84 @@ Use the tools in the required order and complete the full workflow.
             )
 
             if not completed:
-                context["mode"] = "deterministic-fallback"
-                context["activity_log"].append(
-                    "Agent did not complete every tool step; deterministic "
-                    "pipeline completed the remaining steps"
+
+                context["mode"] = (
+                    "deterministic-fallback"
                 )
-                self._deterministic_run(profile, schemes, context)
+
+                context["activity_log"].append(
+                    "Agent did not complete every tool step; "
+                    "deterministic pipeline completed the remaining steps"
+                )
+
+                record_tool_call(
+                    "deterministic_fallback()",
+                    "completed",
+                    (
+                        "Completed missing analysis steps "
+                        "using deterministic services"
+                    ),
+                )
+
+                self._deterministic_run(
+                    profile,
+                    schemes,
+                    context,
+                )
+
             else:
-                context["mode"] = "langchain-agent"
+
+                context["mode"] = (
+                    "langchain-agent"
+                )
+
+        # =========================================================
+        # FALLBACK IF OLLAMA / LANGCHAIN FAILS
+        # =========================================================
 
         except Exception as exc:
-            context["mode"] = "deterministic-fallback"
-            context["activity_log"].append(
-                f"Local agent unavailable; deterministic tools completed the analysis"
+
+            print(
+                f"⚠️ LangChain agent error: {exc}"
             )
-            self._deterministic_run(profile, schemes, context)
 
-        return self._build_result(profile, schemes, context)
+            context["mode"] = (
+                "deterministic-fallback"
+            )
+
+            context["activity_log"].append(
+                "Local agent unavailable; deterministic "
+                "tools completed the analysis"
+            )
+
+            record_tool_call(
+                "deterministic_fallback()",
+                "completed",
+                (
+                    "Local LLM unavailable; "
+                    "deterministic pipeline completed analysis"
+                ),
+            )
+
+            self._deterministic_run(
+                profile,
+                schemes,
+                context,
+            )
+
+        # =========================================================
+        # RETURN FINAL RESPONSE
+        # =========================================================
+
+        return self._build_result(
+            profile,
+            schemes,
+            context,
+        )
 
 
-# Singleton used by FastAPI.
+# =============================================================
+# SINGLETON USED BY FASTAPI
+# =============================================================
+
 civic_benefit_agent = CivicBenefitAgent()

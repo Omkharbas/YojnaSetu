@@ -1,3 +1,4 @@
+import AIChatbot from "../components/AIChatbot";
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 
@@ -866,6 +867,15 @@ export default function Dashboard() {
         </div>
 
       )}
+
+      {/* =================================================
+          YOJNASETU AI CHATBOT
+      ================================================= */}
+
+      <AIChatbot
+        profile={profile}
+        analysis={analysis}
+      />
 
     </div>
   );
