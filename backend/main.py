@@ -16,6 +16,8 @@ from typing import Any, Dict, List
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
+from agent.orchestrator import civic_benefit_agent
+
 from models import AnalyzeRequest, CitizenProfile
 from services import (
     eligibility_engine,
@@ -149,167 +151,16 @@ DEMO_PROFILE: Dict[str, Any] = {
 
 def _run_pipeline(profile: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Runs the full agentic reasoning pipeline and returns
-    a structured result together with an agent activity log.
+    Run the LangChain-based YojnaSetu orchestrator.
+
+    Eligibility, conflict detection, optimization, document checking and
+    application planning remain deterministic services. LangChain only
+    orchestrates their execution.
     """
-
-    activity_log: List[str] = []
-
-    # -----------------------------------------------------
-    # 1. PROFILE ANALYZER
-    # -----------------------------------------------------
-
-    activity_log.append("Profile analyzed")
-
-    evaluations = eligibility_engine.evaluate_all_schemes(
-        SCHEMES,
-        profile,
+    return civic_benefit_agent.run(
+        profile=profile,
+        schemes=SCHEMES,
     )
-
-    eligible = [
-        e for e in evaluations
-        if e["status"] == "ELIGIBLE"
-    ]
-
-    potentially_eligible = [
-        e for e in evaluations
-        if e["status"] == "POTENTIALLY_ELIGIBLE"
-    ]
-
-    needs_verification = [
-        e for e in evaluations
-        if e["status"] == "NEEDS_VERIFICATION"
-    ]
-
-    not_eligible = [
-        e for e in evaluations
-        if e["status"] == "NOT_ELIGIBLE"
-    ]
-
-    activity_log.append(
-        f"{len(SCHEMES)} schemes shortlisted for evaluation"
-    )
-
-    activity_log.append(
-        f"{len(eligible) + len(potentially_eligible)} "
-        f"schemes passed eligibility checks "
-        f"({len(eligible)} eligible, "
-        f"{len(potentially_eligible)} potentially eligible)"
-    )
-
-
-    # -----------------------------------------------------
-    # 2. CONFLICT DETECTOR
-    # -----------------------------------------------------
-
-    conflicts = conflict_detector.detect_conflicts(
-        evaluations
-    )
-
-    activity_log.append(
-        f"{len(conflicts)} potential conflict(s) detected"
-    )
-
-
-    # -----------------------------------------------------
-    # 3. BENEFIT OPTIMIZER
-    # -----------------------------------------------------
-
-    bundle_result = optimizer.optimize_bundle(
-        evaluations,
-        profile,
-    )
-
-    activity_log.append(
-        f"{len(bundle_result['excluded_due_to_conflict'])} "
-        f"incompatible combination(s) removed from bundle"
-    )
-
-    activity_log.append(
-        "Optimal bundle calculated"
-    )
-
-
-    # -----------------------------------------------------
-    # 4. DOCUMENT CHECKER
-    # -----------------------------------------------------
-
-    doc_check = document_checker.check_documents(
-        bundle_result["bundle"],
-        profile.get("documents", []),
-    )
-
-    activity_log.append(
-        f"{doc_check['total_missing']} "
-        f"missing document(s) identified"
-    )
-
-
-    # -----------------------------------------------------
-    # 5. RECOMMENDATION ENGINE
-    # -----------------------------------------------------
-
-    explanations = recommendation_engine.build_explanations(
-        bundle_result["bundle"],
-        profile,
-    )
-
-
-    # -----------------------------------------------------
-    # 6. APPLICATION PLANNER
-    # -----------------------------------------------------
-
-    plan = recommendation_engine.generate_application_plan(
-        bundle_result["bundle"],
-        doc_check["missing_documents"],
-        profile,
-    )
-
-    activity_log.append(
-        "Application plan generated"
-    )
-
-
-    # -----------------------------------------------------
-    # FINAL RESULT
-    # -----------------------------------------------------
-
-    return {
-        "disclaimer": DISCLAIMER,
-
-        "summary": {
-            "schemes_analyzed": len(SCHEMES),
-            "potentially_eligible": (
-                len(eligible) + len(potentially_eligible)
-            ),
-            "conflicts_detected": len(conflicts),
-            "recommended_schemes": len(
-                bundle_result["bundle"]
-            ),
-            "documents_missing": doc_check[
-                "total_missing"
-            ],
-        },
-
-        "eligibility": {
-            "eligible": eligible,
-            "potentially_eligible": potentially_eligible,
-            "needs_verification": needs_verification,
-            "not_eligible": not_eligible,
-        },
-
-        "conflicts": conflicts,
-
-        "bundle": bundle_result,
-
-        "documents": doc_check,
-
-        "explanations": explanations,
-
-        "application_plan": plan,
-
-        "agent_activity_log": activity_log,
-    }
 
 
 # =========================================================
