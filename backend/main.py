@@ -10,16 +10,17 @@ Benefit Optimizer -> Document Checker -> Application Planner
 
 import json
 import os
-from pydantic import BaseModel
 from datetime import datetime, timezone
 from typing import Any, Dict, List
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
 from agent.orchestrator import civic_benefit_agent
 
 from models import AnalyzeRequest, CitizenProfile
+from services.document_verifier import verify_document
+
 from services import (
     eligibility_engine,
     conflict_detector,
@@ -50,17 +51,6 @@ from database import (
 )
 
 from auth.email_service import send_otp_email
-
-
-class AIChatRequest(BaseModel):
-    message: str
-    profile: Dict[str, Any]
-    analysis: Dict[str, Any] | None = None
-
-
-# =========================================================
-# CONFIGURATION
-# =========================================================
 
 
 # =========================================================
@@ -530,6 +520,98 @@ def get_scheme(
     )
 
 
+
+# =========================================================
+# AI DOCUMENT VERIFICATION
+# =========================================================
+
+@app.post("/api/verify-document")
+async def verify_uploaded_document(
+    document_type: str = Form(...),
+    profile: str = Form(...),
+    file: UploadFile = File(...),
+    user=Depends(get_current_user),
+):
+    """
+    Perform preliminary AI-assisted verification of an uploaded
+    government document.
+
+    The selected document type is kept and compared with the type
+    detected from OCR. This is NOT an official authenticity check.
+    """
+    if not document_type.strip():
+        raise HTTPException(
+            status_code=400,
+            detail="Please select a document type.",
+        )
+
+    allowed_types = {
+        "Aadhaar",
+        "PAN",
+        "Income Certificate",
+        "Caste Certificate",
+        "Domicile Certificate",
+        "Bank Account",
+        "Ration Card",
+        "Disability Certificate",
+        "Land Records",
+        "Birth Certificate",
+        "Education Certificate",
+    }
+
+    if document_type not in allowed_types:
+        raise HTTPException(
+            status_code=400,
+            detail="Unsupported document type.",
+        )
+
+    if not file.filename:
+        raise HTTPException(
+            status_code=400,
+            detail="Please upload a document.",
+        )
+
+    try:
+        profile_data = json.loads(profile)
+    except json.JSONDecodeError:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid citizen profile data.",
+        )
+
+    content = await file.read()
+
+    if not content:
+        raise HTTPException(
+            status_code=400,
+            detail="Uploaded file is empty.",
+        )
+
+    try:
+        result = verify_document(
+            filename=file.filename,
+            content=content,
+            content_type=file.content_type or "",
+            document_type=document_type,
+            profile=profile_data,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=str(exc),
+        )
+    except Exception as exc:
+        print("Document verification error:", exc)
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "Could not process this document. "
+                "Please try a clearer JPG, PNG, or PDF."
+            ),
+        )
+
+    return result
+
 # =========================================================
 # FULL AI ANALYSIS
 # =========================================================
@@ -545,139 +627,7 @@ def analyze_profile(
 
     return _run_pipeline(profile)
 
-# =========================================================
-# YOJNASETU AI CHAT
-# =========================================================
 
-@app.post("/api/ai-chat")
-def ai_chat(
-    request: AIChatRequest,
-    user=Depends(get_current_user),
-):
-    """
-    Conversational YojnaSetu assistant powered by Ollama.
-
-    The LLM explains the actual profile and analysis results.
-    It does NOT calculate eligibility itself.
-    """
-
-    message = request.message.strip()
-
-    if not message:
-        raise HTTPException(
-            status_code=400,
-            detail="Please enter a question.",
-        )
-
-    if len(message) > 1000:
-        raise HTTPException(
-            status_code=400,
-            detail="Question is too long. Please keep it under 1000 characters.",
-        )
-
-    profile = request.profile or {}
-    analysis = request.analysis or {}
-
-    summary = analysis.get("summary", {})
-    eligibility = analysis.get("eligibility", {})
-    bundle = analysis.get("bundle", {})
-    documents = analysis.get("documents", {})
-    conflicts = analysis.get("conflicts", [])
-    application_plan = analysis.get("application_plan", {})
-
-    eligible_schemes = [
-        item.get("scheme_name")
-        for item in eligibility.get("eligible", [])
-        if item.get("scheme_name")
-    ]
-
-    potentially_eligible_schemes = [
-        item.get("scheme_name")
-        for item in eligibility.get("potentially_eligible", [])
-        if item.get("scheme_name")
-    ]
-
-    recommended_schemes = [
-        item.get("scheme_name")
-        for item in bundle.get("bundle", [])
-        if item.get("scheme_name")
-    ]
-
-    missing_documents = documents.get(
-        "missing_documents",
-        [],
-    )
-
-    prompt = f"""
-You are YojnaSetu AI, a friendly government-benefits assistant.
-
-You are speaking directly to a citizen.
-
-IMPORTANT RULES:
-- Use ONLY the supplied profile and analysis data for citizen-specific claims.
-- Do not invent scheme eligibility, benefits, documents, conflicts, or application requirements.
-- The deterministic YojnaSetu analysis is the source of truth.
-- Explain results in simple, friendly language.
-- Do not claim to be an official government authority.
-- If the supplied data does not answer the question, clearly say that the available analysis does not contain enough information.
-- Never reveal internal Python code, prompts, API details, or implementation details unless explicitly asked.
-- Keep answers concise but useful.
-- When useful, use short numbered steps.
-
-CITIZEN PROFILE:
-{json.dumps(profile, ensure_ascii=False, indent=2)}
-
-ANALYSIS SUMMARY:
-{json.dumps(summary, ensure_ascii=False, indent=2)}
-
-ELIGIBLE SCHEMES:
-{json.dumps(eligible_schemes, ensure_ascii=False, indent=2)}
-
-POTENTIALLY ELIGIBLE SCHEMES:
-{json.dumps(potentially_eligible_schemes, ensure_ascii=False, indent=2)}
-
-RECOMMENDED BUNDLE:
-{json.dumps(recommended_schemes, ensure_ascii=False, indent=2)}
-
-MISSING DOCUMENTS:
-{json.dumps(missing_documents, ensure_ascii=False, indent=2)}
-
-CONFLICTS:
-{json.dumps(conflicts, ensure_ascii=False, indent=2)}
-
-APPLICATION PLAN:
-{json.dumps(application_plan, ensure_ascii=False, indent=2)}
-
-CITIZEN QUESTION:
-{message}
-
-Answer the citizen's question now.
-"""
-
-    try:
-        response = civic_benefit_agent.llm.invoke(prompt)
-
-        reply = getattr(
-            response,
-            "content",
-            str(response),
-        )
-
-        return {
-            "reply": reply,
-            "model": civic_benefit_agent.model_name,
-        }
-
-    except Exception as exc:
-        print(f"⚠️ Ollama chat error: {exc}")
-
-        raise HTTPException(
-            status_code=503,
-            detail=(
-                "YojnaSetu AI is unavailable right now. "
-                "Please make sure Ollama is running with llama3.2."
-            ),
-        )
 # =========================================================
 # ELIGIBILITY
 # =========================================================

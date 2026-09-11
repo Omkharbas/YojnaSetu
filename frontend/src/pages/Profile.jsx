@@ -39,8 +39,25 @@ export default function Profile() {
   const { profile } = useApp();
   const navigate = useNavigate();
 
+  const [selectedDocument, setSelectedDocument] = React.useState("");
   const [selectedFile, setSelectedFile] = React.useState(null);
   const [verificationStatus, setVerificationStatus] = React.useState("idle");
+  const [verificationResult, setVerificationResult] = React.useState(null);
+  const [verificationError, setVerificationError] = React.useState("");
+
+  const documentTypes = [
+    "Aadhaar",
+    "PAN",
+    "Income Certificate",
+    "Caste Certificate",
+    "Domicile Certificate",
+    "Bank Account",
+    "Ration Card",
+    "Disability Certificate",
+    "Land Records",
+    "Birth Certificate",
+    "Education Certificate",
+  ];
 
   const handleFileSelect = (event) => {
     const file = event.target.files?.[0];
@@ -49,17 +66,44 @@ export default function Profile() {
 
     setSelectedFile(file);
     setVerificationStatus("idle");
+    setVerificationResult(null);
+    setVerificationError("");
   };
 
-  const handleVerifyDocument = () => {
-    if (!selectedFile) return;
+  const handleVerifyDocument = async () => {
+    if (!selectedDocument || !selectedFile) return;
 
     setVerificationStatus("processing");
+    setVerificationResult(null);
+    setVerificationError("");
 
-    // Document type will be detected automatically by OCR/AI.
-    setTimeout(() => {
-      setVerificationStatus("pending");
-    }, 700);
+    try {
+      const formData = new FormData();
+      formData.append("document_type", selectedDocument);
+      formData.append("file", selectedFile);
+      formData.append("profile", JSON.stringify(profile));
+
+      const token = localStorage.getItem("civicbenefit_token");
+
+      const response = await fetch("http://localhost:8000/api/verify-document", {
+        method: "POST",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        body: formData,
+      });
+
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        throw new Error(data.detail || "Document verification failed.");
+      }
+
+      setVerificationResult(data);
+      setVerificationStatus("complete");
+    } catch (error) {
+      console.error("Document verification error:", error);
+      setVerificationError(error?.message || "Document verification failed.");
+      setVerificationStatus("error");
+    }
   };
 
   const formatIncome = (income) => {
@@ -556,6 +600,28 @@ export default function Profile() {
         <div>
 
           <label className="mb-2 block text-xs font-semibold text-slate-600">
+            Document Type
+          </label>
+
+          <select
+            value={selectedDocument}
+            onChange={(e) => {
+              setSelectedDocument(e.target.value);
+              setVerificationStatus("idle");
+              setVerificationResult(null);
+              setVerificationError("");
+            }}
+            className="mb-4 w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+          >
+            <option value="">Select document</option>
+            {documentTypes.map((doc) => (
+              <option key={doc} value={doc}>
+                {doc}
+              </option>
+            ))}
+          </select>
+
+          <label className="mb-2 block text-xs font-semibold text-slate-600">
             Upload Government Document
           </label>
 
@@ -571,7 +637,7 @@ export default function Profile() {
               </p>
 
               <p className="mt-1 text-[11px] text-slate-400">
-                JPG, PNG or PDF • document type will be detected automatically
+                JPG, PNG or PDF • AI will check the selected document type
               </p>
             </div>
 
@@ -594,6 +660,85 @@ export default function Profile() {
           </div>
 
         </div>
+
+        {verificationStatus === "processing" && (
+          <div className="mt-4 rounded-xl border border-blue-200 bg-blue-50 p-4">
+            <div className="flex items-center gap-3">
+              <Loader2 size={18} className="animate-spin text-blue-600" />
+              <div>
+                <p className="text-sm font-bold text-blue-800">
+                  AI is verifying the document...
+                </p>
+                <p className="mt-1 text-xs text-blue-700">
+                  Reading the document, checking its type, and comparing relevant details.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {verificationStatus === "error" && (
+          <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-4">
+            <p className="text-sm font-bold text-red-800">Verification failed</p>
+            <p className="mt-1 text-xs leading-5 text-red-700">{verificationError}</p>
+          </div>
+        )}
+
+        {verificationStatus === "complete" && verificationResult && (
+          <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-sm font-bold text-slate-900">
+                  {verificationResult.status === "VALID_LOOKING"
+                    ? "✅ Document looks consistent"
+                    : verificationResult.status === "NEEDS_REVIEW"
+                      ? "⚠️ Document needs review"
+                      : "❌ Document mismatch detected"}
+                </p>
+                <p className="mt-1 text-xs text-slate-500">
+                  Selected: {verificationResult.selected_document_type}
+                  {" • "}
+                  Detected: {verificationResult.detected_document_type}
+                </p>
+              </div>
+
+              <span className="rounded-full bg-white px-3 py-1 text-xs font-bold text-slate-700 shadow-sm">
+                {verificationResult.confidence}% confidence
+              </span>
+            </div>
+
+            {verificationResult.extracted_fields && (
+              <div className="mt-4 grid gap-2 sm:grid-cols-2">
+                {Object.entries(verificationResult.extracted_fields)
+                  .filter(([, value]) => value)
+                  .map(([key, value]) => (
+                    <div key={key} className="rounded-lg bg-white p-3">
+                      <p className="text-[10px] font-medium uppercase tracking-wide text-slate-400">
+                        {key.replaceAll("_", " ")}
+                      </p>
+                      <p className="mt-1 text-xs font-semibold text-slate-800">{value}</p>
+                    </div>
+                  ))}
+              </div>
+            )}
+
+            <div className="mt-4 space-y-2">
+              {verificationResult.checks?.map((check, index) => (
+                <div key={`${check.check}-${index}`} className="flex items-start gap-2 text-xs">
+                  <span>{check.status === "passed" ? "✅" : check.status === "warning" ? "⚠️" : "❌"}</span>
+                  <div>
+                    <p className="font-semibold text-slate-700">{check.check}</p>
+                    <p className="text-slate-500">{check.message}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <p className="mt-4 text-[10px] leading-4 text-slate-400">
+              Preliminary AI-assisted validation only. This does not establish official government authenticity.
+            </p>
+          </div>
+        )}
 
         {/* VERIFY BUTTON */}
 
@@ -628,7 +773,7 @@ export default function Profile() {
                   size={16}
                   className="animate-spin"
                 />
-                Preparing...
+                Verifying...
               </>
             ) : (
               <>

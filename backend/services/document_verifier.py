@@ -127,6 +127,145 @@ def _extract_text_from_bytes(
     }
 
 
+
+def detect_document_type(text: str) -> Dict[str, Any]:
+    """
+    Detect the likely government-document type from OCR text.
+
+    This is a preliminary classifier, not an official document-authenticity
+    service. It returns the best matching type plus a confidence score.
+    """
+    clean = _normalize_text(text).lower()
+
+    scores = {
+        "Aadhaar": 0,
+        "PAN": 0,
+        "Income Certificate": 0,
+        "Caste Certificate": 0,
+        "Domicile Certificate": 0,
+        "Bank Account": 0,
+        "Ration Card": 0,
+        "Disability Certificate": 0,
+        "Land Records": 0,
+        "Birth Certificate": 0,
+        "Education Certificate": 0,
+    }
+
+    keyword_weights = {
+        "Aadhaar": [
+            ("aadhaar", 6),
+            ("uidai", 5),
+            ("unique identification", 4),
+        ],
+        "PAN": [
+            ("income tax department", 4),
+            ("permanent account number", 6),
+            ("pan", 3),
+        ],
+        "Income Certificate": [
+            ("income certificate", 7),
+            ("annual income", 3),
+            ("income", 1),
+        ],
+        "Caste Certificate": [
+            ("caste certificate", 7),
+            ("scheduled caste", 4),
+            ("scheduled tribe", 4),
+            ("other backward class", 4),
+            ("social category", 2),
+        ],
+        "Domicile Certificate": [
+            ("domicile certificate", 7),
+            ("residence certificate", 5),
+            ("resident of", 2),
+        ],
+        "Bank Account": [
+            ("bank account", 5),
+            ("account number", 4),
+            ("ifsc", 5),
+            ("micr", 4),
+            ("savings account", 3),
+        ],
+        "Ration Card": [
+            ("ration card", 7),
+            ("food and civil supplies", 4),
+            ("fair price shop", 4),
+        ],
+        "Disability Certificate": [
+            ("disability certificate", 7),
+            ("benchmark disability", 5),
+            ("person with disability", 5),
+            ("disability percentage", 4),
+        ],
+        "Land Records": [
+            ("land record", 6),
+            ("survey number", 5),
+            ("7/12", 7),
+            ("seven twelve", 5),
+            ("khasra", 5),
+            ("property card", 4),
+        ],
+        "Birth Certificate": [
+            ("birth certificate", 7),
+            ("date of birth", 3),
+            ("registrar of births", 5),
+        ],
+        "Education Certificate": [
+            ("marksheet", 6),
+            ("mark sheet", 6),
+            ("certificate", 1),
+            ("university", 3),
+            ("board examination", 4),
+            ("school", 2),
+            ("college", 2),
+        ],
+    }
+
+    for doc_type, keywords in keyword_weights.items():
+        for keyword, weight in keywords:
+            if keyword in clean:
+                scores[doc_type] += weight
+
+    # Strong format signals.
+    compact = clean.upper().replace(" ", "")
+    if re.search(r"(?<![A-Z0-9])[A-Z]{5}\d{4}[A-Z](?![A-Z0-9])", compact):
+        scores["PAN"] += 8
+
+    if re.search(r"(?<!\d)\d{4}\d{4}\d{4}(?!\d)", compact):
+        scores["Aadhaar"] += 8
+
+    best_type = max(scores, key=scores.get)
+    best_score = scores[best_type]
+    sorted_scores = sorted(scores.values(), reverse=True)
+
+    if best_score <= 0:
+        return {
+            "detected_type": "Unknown",
+            "confidence": 0,
+            "scores": scores,
+        }
+
+    second_score = sorted_scores[1] if len(sorted_scores) > 1 else 0
+
+    # Higher confidence when the top signal clearly beats the runner-up.
+    confidence = min(
+        98,
+        max(
+            45,
+            int(
+                min(1.0, best_score / 12.0) * 70
+                + min(1.0, (best_score - second_score) / 8.0) * 28
+            ),
+        ),
+    )
+
+    return {
+        "detected_type": best_type,
+        "confidence": confidence,
+        "scores": scores,
+    }
+
+
 def _extract_fields(document_type: str, text: str) -> Dict[str, Any]:
     clean = _normalize_text(text)
 
@@ -337,15 +476,57 @@ def verify_document(
             "ocr_text_preview": "",
         }
 
-    fields = _extract_fields(document_type, text)
+    detected = detect_document_type(text)
+
+    if detected["detected_type"] != "Unknown":
+        fields_document_type = detected["detected_type"]
+    else:
+        fields_document_type = document_type
+
+    fields = _extract_fields(fields_document_type, text)
     check_result = _run_checks(
-        document_type,
+        fields_document_type,
         fields,
         profile,
         text,
     )
 
     checks = check_result["checks"]
+
+    # Compare the user's selected type against the type detected from OCR.
+    declared = _normalize_text(document_type).lower()
+    detected_type = _normalize_text(detected["detected_type"]).lower()
+
+    type_matches = (
+        detected["detected_type"] == "Unknown"
+        or declared == detected_type
+    )
+
+    if detected["detected_type"] != "Unknown":
+        checks.append(
+            {
+                "check": "Selected type vs detected type",
+                "status": "passed" if type_matches else "failed",
+                "message": (
+                    f"Document appears to be {detected['detected_type']}."
+                    if type_matches
+                    else (
+                        f"You selected {document_type}, but OCR signals "
+                        f"suggest {detected['detected_type']}."
+                    )
+                ),
+            }
+        )
+    else:
+        checks.append(
+            {
+                "check": "Selected type vs detected type",
+                "status": "warning",
+                "message": (
+                    "The document type could not be detected confidently."
+                ),
+            }
+        )
 
     failed = sum(item["status"] == "failed" for item in checks)
     warnings = sum(item["status"] == "warning" for item in checks)
@@ -364,7 +545,10 @@ def verify_document(
     return {
         "status": status,
         "confidence": confidence,
-        "document_type": document_type,
+        "selected_document_type": document_type,
+        "detected_document_type": detected["detected_type"],
+        "detection_confidence": detected["confidence"],
+        "document_type": fields_document_type,
         "filename": filename,
         "page_count": extracted["page_count"],
         "extracted_fields": fields,
@@ -375,4 +559,3 @@ def verify_document(
         ),
         "ocr_text_preview": text[:1200],
     }
-
