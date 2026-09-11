@@ -15,7 +15,26 @@ import {
 
 import { useApp } from "../context/AppContext";
 import { useAuth } from "../context/AuthContext";
+const calculateAge = (dob) => {
+  if (!dob) return "";
 
+  const birthDate = new Date(dob);
+  const today = new Date();
+
+  let age = today.getFullYear() - birthDate.getFullYear();
+
+  const monthDiff = today.getMonth() - birthDate.getMonth();
+
+  if (
+    monthDiff < 0 ||
+    (monthDiff === 0 &&
+      today.getDate() < birthDate.getDate())
+  ) {
+    age--;
+  }
+
+  return Math.max(0, age);
+};
 export default function ProfileSetup() {
   const { profile, setProfile } = useApp();
   const { user } = useAuth();
@@ -25,7 +44,8 @@ export default function ProfileSetup() {
 
   const [form, setForm] = useState({
     name: profile.name || "",
-    age: profile.age || "",
+    date_of_birth: profile.date_of_birth || "",
+    age: "",
     gender: profile.gender || "",
     state: profile.state || "",
     district: profile.district || "",
@@ -114,12 +134,13 @@ export default function ProfileSetup() {
     // =================================================
 
     setProfile((previous) => ({
-      ...previous,
+  ...previous,
 
-      // Basic details
-      name: form.name.trim(),
-      age: Number(form.age),
-      gender: form.gender,
+  // Basic details
+  name: form.name.trim(),
+  date_of_birth: form.date_of_birth,
+age: calculateAge(form.date_of_birth), 
+gender: form.gender,
 
       // Location
       state: form.state,
@@ -297,8 +318,8 @@ export default function ProfileSetup() {
               <div className="sm:col-span-2">
 
                 <label className="label-field">
-                  Full Name *
-                </label>
+  Full Name * (as per Aadhaar Card)
+</label>
 
                 <input
                   className="input-field"
@@ -306,12 +327,29 @@ export default function ProfileSetup() {
                   onChange={(e) =>
                     update("name", e.target.value)
                   }
-                  placeholder="Enter your full name"
+                  placeholder="Enter your name exactly as on Aadhaar Card"
                   required
                 />
 
               </div>
+<div>
+  <label className="label-field">
+    Date of Birth * (as per Aadhaar Card)
+  </label>
 
+  <input
+    type="date"
+    className="input-field"
+    value={form.date_of_birth}
+   onChange={(e) => {
+  const dob = e.target.value;
+
+  update("date_of_birth", dob);
+  update("age", calculateAge(dob));
+}}
+    required
+  />
+</div>
 
               {/* AGE */}
 
@@ -322,17 +360,11 @@ export default function ProfileSetup() {
                 </label>
 
                 <input
-                  type="number"
-                  min="1"
-                  max="120"
-                  className="input-field"
-                  value={form.age}
-                  onChange={(e) =>
-                    update("age", e.target.value)
-                  }
-                  placeholder="Your age"
-                  required
-                />
+  type="number"
+  className="input-field"
+  value={form.age}
+  readOnly
+/>
 
               </div>
 

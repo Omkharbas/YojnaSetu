@@ -1,3 +1,4 @@
+import AIChatbot from "./components/AIChatbot";
 import React from "react";
 import { Routes, Route } from "react-router-dom";
 
@@ -110,12 +111,14 @@ export default function App() {
             {/* ================= ANALYSIS ================= */}
 
             <Route
+            
               path="/analysis"
               element={
                 <Protected>
                   <Analysis />
                 </Protected>
               }
+              
             />
 
 
@@ -150,7 +153,9 @@ export default function App() {
               }
             />
 
-          </Routes>
+                    </Routes>
+
+          <AIChatbot />
 
         </div>
 

@@ -22,11 +22,44 @@ from typing import Any, Dict, List, Optional
 
 from PIL import Image, ImageOps
 import pytesseract
+pytesseract.pytesseract.tesseract_cmd = (
+    r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+)
 
 try:
     import fitz  # PyMuPDF
 except ImportError:
     fitz = None
+
+
+def _configure_tesseract() -> None:
+    """Find the Tesseract executable on Windows/Linux automatically."""
+    import os
+    import shutil
+
+    # First use PATH, which is the normal installation method.
+    detected = shutil.which("tesseract")
+    if detected:
+        pytesseract.pytesseract.tesseract_cmd = detected
+        return
+
+    # Common Windows installation locations.
+    if os.name == "nt":
+        candidates = [
+            r"C:\Program Files\Tesseract-OCR\tesseract.exe",
+            r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
+            os.path.expandvars(
+                r"%LOCALAPPDATA%\Programs\Tesseract-OCR\tesseract.exe"
+            ),
+        ]
+
+        for candidate in candidates:
+            if os.path.exists(candidate):
+                pytesseract.pytesseract.tesseract_cmd = candidate
+                return
+
+
+_configure_tesseract()
 
 
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
@@ -82,7 +115,13 @@ def _ocr_image(image: Image.Image) -> str:
             (int(gray.width * scale), int(gray.height * scale))
         )
 
-    return pytesseract.image_to_string(gray, config="--psm 6")
+    try:
+        return pytesseract.image_to_string(gray, config="--psm 6")
+    except pytesseract.pytesseract.TesseractNotFoundError as exc:
+        raise RuntimeError(
+            "Tesseract OCR is not installed or is not available in PATH. "
+            "Install Tesseract OCR and restart the backend."
+        ) from exc
 
 
 def _extract_text_from_bytes(

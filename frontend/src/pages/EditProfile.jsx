@@ -24,7 +24,26 @@ export default function EditProfile() {
     profile,
     setProfile,
   } = useApp();
+const calculateAge = (dob) => {
+  if (!dob) return "";
 
+  const birthDate = new Date(dob);
+  const today = new Date();
+
+  let age = today.getFullYear() - birthDate.getFullYear();
+
+  const monthDiff = today.getMonth() - birthDate.getMonth();
+
+  if (
+    monthDiff < 0 ||
+    (monthDiff === 0 &&
+      today.getDate() < birthDate.getDate())
+  ) {
+    age--;
+  }
+
+  return Math.max(0, age);
+};
   const navigate = useNavigate();
 
   const [loadingDemo, setLoadingDemo] =
@@ -182,7 +201,7 @@ export default function EditProfile() {
 
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
 
-            <Field label="Full Name">
+          <Field label="Full Name (as per Aadhaar Card)">
 
               <input
                 className="input-field"
@@ -196,23 +215,31 @@ export default function EditProfile() {
               />
 
             </Field>
+                                                          
 
 
-            <Field label="Age">
+            <Field label="Date of Birth (as per Aadhaar Card)">
+  <input
+    type="date"
+    className="input-field"
+    value={profile.date_of_birth || ""}
+    onChange={(e) => {
+  const dob = e.target.value;
 
-              <input
-                type="number"
-                className="input-field"
-                value={profile.age}
-                onChange={(e) =>
-                  update(
-                    "age",
-                    Number(e.target.value)
-                  )
-                }
-              />
+  update("date_of_birth", dob);
+  update("age", calculateAge(dob));
+}}
+  />
+</Field>
 
-            </Field>
+<Field label="Age">
+  <input
+    type="number"
+    className="input-field"
+    value={profile.age || ""}
+    readOnly
+  />
+</Field>
 
 
             <Field label="Gender">
