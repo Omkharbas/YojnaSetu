@@ -37,6 +37,7 @@ YojnaSetu transforms a citizen profile into a personalized scheme-benefit plan.
 
 Instead of simply returning a list of schemes, the platform follows a multi-stage decision pipeline:
 
+```text
 Citizen Profile
       ↓
 Profile Analysis
@@ -56,6 +57,7 @@ Personalized Recommendation
 Document Verification
       ↓
 Application Planning
+```
 
 The result is an actionable recommendation rather than an unranked list of schemes.
 
@@ -195,69 +197,74 @@ The application planner can provide:
 
 # 🏗️ System Architecture
 
+```text
                          ┌───────────────────┐
                          │      CITIZEN      │
+                         │ Profile + Data    │
                          └─────────┬─────────┘
-                                   │
                                    ↓
                          ┌───────────────────┐
                          │  React Frontend   │
-                         │    Vite + UI      │
+                         │   Vite + Tailwind │
                          └─────────┬─────────┘
-                                   │
                                    ↓
                          ┌───────────────────┐
                          │  FastAPI Backend  │
                          └─────────┬─────────┘
-                                   │
                                    ↓
-                       ┌────────────────────────┐
-                       │ Agent / AI Orchestrator│
-                       └───────────┬────────────┘
-                                   │
-              ┌────────────────────┼────────────────────┐
-              ↓                    ↓                    ↓
-      ┌───────────────┐    ┌───────────────┐    ┌───────────────┐
-      │ Eligibility   │    │    Conflict   │    │ Optimization  │
-      │    Engine     │    │    Detector   │    │     Engine    │
-      └───────┬───────┘    └───────┬───────┘    └───────┬───────┘
-              └────────────────────┼────────────────────┘
+                    ┌───────────────────────────┐
+                    │    AI / Agent Layer       │
+                    │ LangChain + Ollama/LLM    │
+                    └──────────────┬────────────┘
+                                   ↓
+             ┌─────────────────────┼─────────────────────┐
+             ↓                     ↓                     ↓
+      ┌───────────────┐     ┌───────────────┐     ┌───────────────┐
+      │ Eligibility   │     │    Conflict   │     │ Optimization  │
+      │    Engine     │     │    Detector   │     │     Engine    │
+      └───────────────┘     └───────────────┘     └───────────────┘
+             └─────────────────────┼─────────────────────┘
                                    ↓
                      ┌────────────────────────┐
                      │ Scheme Knowledge Base  │
                      └────────────────────────┘
+                                   ↓
+                     Personalized Recommendation
 
-                         Document Upload
-                               ↓
-                         Tesseract OCR
-                               ↓
-                    AI-Assisted Field Extraction
-                               ↓
-                     Profile Comparison
-                               ↓
-                    Verification Result
+                 Document Upload
+                        ↓
+                   Tesseract OCR
+                        ↓
+              AI-Assisted Extraction
+                        ↓
+                Profile Comparison
+                        ↓
+                Verification Result
+```
 
 ---
 
 # 🔄 Agentic Decision Workflow
 
-             CITIZEN PROFILE
-                    ↓
-             Understand Input
-                    ↓
-            Analyze Eligibility
-                    ↓
-              Filter Schemes
-                    ↓
-             Detect Conflicts
-                    ↓
-             Compare Benefits
-                    ↓
-             Optimize Bundle
-                    ↓
-             Explain Result
-                    ↓
-          PERSONALIZED RECOMMENDATION
+```text
+CITIZEN PROFILE
+       ↓
+UNDERSTAND INPUT
+       ↓
+ANALYZE ELIGIBILITY
+       ↓
+FILTER SCHEMES
+       ↓
+DETECT CONFLICTS
+       ↓
+COMPARE BENEFITS
+       ↓
+OPTIMIZE BUNDLE
+       ↓
+EXPLAIN RESULT
+       ↓
+PERSONALIZED RECOMMENDATION
+```
 
 ### Decision Pipeline
 
@@ -390,8 +397,10 @@ Make sure you have installed:
 
 ## 1. Clone the Repository
 
+```bash
 git clone https://github.com/Omkharbas/YojnaSetu.git
 cd YojnaSetu
+```
 
 ---
 
@@ -399,31 +408,45 @@ cd YojnaSetu
 
 Open a terminal:
 
+```bash
 cd backend
+```
 
 Create a virtual environment:
 
+```bash
 python -m venv venv
+```
 
 Activate it on Windows:
 
+```text
 venv\Scripts\activate
+```
 
 Install dependencies:
 
+```bash
 pip install -r requirements.txt
+```
 
 Start the backend:
 
+```bash
 uvicorn main:app --reload
+```
 
 Backend:
 
+```text
 http://localhost:8000
+```
 
 API documentation:
 
+```text
 http://localhost:8000/docs
+```
 
 ---
 
@@ -431,19 +454,27 @@ http://localhost:8000/docs
 
 Open a second terminal:
 
+```bash
 cd frontend
+```
 
 Install dependencies:
 
+```bash
 npm install
+```
 
 Start the development server:
 
+```bash
 npm run dev
+```
 
 Frontend:
 
+```text
 http://localhost:5173
+```
 
 ---
 
@@ -451,11 +482,15 @@ http://localhost:5173
 
 Install Ollama and make sure the model used by the application is available.
 
+```bash
 ollama pull llama3.2
+```
 
 Start Ollama:
 
+```bash
 ollama serve
+```
 
 YojnaSetu can use the local Ollama model for AI-assisted reasoning, conversational interaction and document field interpretation.
 
@@ -512,6 +547,7 @@ Shows required documents and application checklist progress.
 
 Traditional approach:
 
+```text
 Search
   ↓
 Read eligibility
@@ -525,9 +561,11 @@ Choose schemes
 Find documents
   ↓
 Apply
+```
 
 ### YojnaSetu
 
+```text
 Citizen Profile
       ↓
 AI-Assisted Analysis
@@ -543,6 +581,7 @@ Recommendation
 Document Verification
       ↓
 Application Plan
+```
 
 > YojnaSetu does not simply tell citizens what schemes exist — it helps them understand which eligible schemes work together and what to do next.
 
