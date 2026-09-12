@@ -316,6 +316,7 @@ Observe → Reason → Validate → Compare → Optimize → Recommend
 
 # 📁 Project Structure
 
+```text
 YojnaSetu/
 │
 ├── frontend/
@@ -343,15 +344,10 @@ YojnaSetu/
 │   │   └── services/
 │   │       └── api.js
 │   │
-│   └── package.json
+│   ├── package.json
+│   └── ...
 │
 ├── backend/
-│   ├── main.py
-│   ├── models.py
-│   ├── database.py
-│   ├── schemes.json
-│   ├── requirements.txt
-│   │
 │   ├── auth/
 │   │   ├── auth.py
 │   │   └── email_service.py
@@ -364,13 +360,18 @@ YojnaSetu/
 │   │   ├── document_checker.py
 │   │   └── document_verifier.py
 │   │
-│   └── agent/
-│       ├── orchestrator.py
-│       └── prompts.py
+│   ├── agent/
+│   │   ├── orchestrator.py
+│   │   └── prompts.py
+│   │
+│   ├── main.py
+│   ├── models.py
+│   ├── database.py
+│   ├── schemes.json
+│   ├── requirements.txt
+│   └── ...
 │
 └── README.md
-
----
 
 # 🚀 Getting Started
 
