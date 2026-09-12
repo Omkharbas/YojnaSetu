@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import io
 import re
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from PIL import Image, ImageOps
@@ -99,6 +100,43 @@ def _name_matches(profile_name: str, extracted_name: str) -> bool:
 
     overlap = len(p_tokens & e_tokens) / max(len(p_tokens), len(e_tokens))
     return overlap >= 0.5
+
+def _normalize_dob(value: Any) -> Optional[str]:
+    """
+    Convert common DOB formats into YYYY-MM-DD.
+    Supports profile DOB like 2007-10-29 and
+    document DOB like 29/10/2007.
+    """
+    raw = _normalize_text(value)
+
+    if not raw:
+        return None
+
+    formats = [
+        "%Y-%m-%d",
+        "%d/%m/%Y",
+        "%d-%m-%Y",
+        "%d/%m/%y",
+        "%d-%m-%y",
+    ]
+
+    for fmt in formats:
+        try:
+            return datetime.strptime(raw, fmt).strftime("%Y-%m-%d")
+        except ValueError:
+            continue
+
+    return None
+
+
+def _dob_matches(profile_dob: Any, extracted_dob: Any) -> bool:
+    profile_normalized = _normalize_dob(profile_dob)
+    extracted_normalized = _normalize_dob(extracted_dob)
+
+    if not profile_normalized or not extracted_normalized:
+        return False
+
+    return profile_normalized == extracted_normalized
 
 
 def _ocr_image(image: Image.Image) -> str:
@@ -451,14 +489,38 @@ def _run_checks(
             }
         )
 
-    if fields.get("date_of_birth"):
-        checks.append(
-            {
-                "check": "Date of birth extraction",
-                "status": "passed",
-                "message": f"Date-like value detected: {fields['date_of_birth']}.",
-            }
-        )
+        if fields.get("date_of_birth"):
+            extracted_dob = fields["date_of_birth"]
+        profile_dob = profile.get("date_of_birth")
+
+        if profile_dob:
+            dob_matched = _dob_matches(
+                profile_dob,
+                extracted_dob,
+            )
+
+            checks.append(
+                {
+                    "check": "Date of birth vs citizen profile",
+                    "status": "passed" if dob_matched else "failed",
+                    "message": (
+                        "Date of birth matches the citizen profile."
+                        if dob_matched
+                        else (
+                            f"Document DOB {extracted_dob} does not match "
+                            f"profile DOB {profile_dob}."
+                        )
+                    ),
+                }
+            )
+        else:
+            checks.append(
+                {
+                    "check": "Date of birth vs citizen profile",
+                    "status": "warning",
+                    "message": "Profile date of birth is not available for comparison.",
+                }
+            )
 
     if fields.get("pincode"):
         checks.append(
