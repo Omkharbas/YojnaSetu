@@ -18,6 +18,9 @@ from __future__ import annotations
 
 import io
 import re
+import json
+import urllib.request
+import urllib.error
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
@@ -404,6 +407,185 @@ def _extract_fields(document_type: str, text: str) -> Dict[str, Any]:
     return fields
 
 
+def _ollama_extract_fields(
+    document_type: str,
+    ocr_text: str,
+    profile_name: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Use Ollama to identify the correct fields from OCR text.
+
+    The model must identify the actual document holder's name,
+    not labels, father's name, department names, or address text.
+    """
+
+    result = {
+        "document_number": None,
+        "name": None,
+        "date_of_birth": None,
+    }
+
+    if not ocr_text or not ocr_text.strip():
+        return result
+
+    model = "llama3.2"
+
+    profile_name_text = _normalize_text(profile_name)
+
+    prompt = f"""
+You are an expert Indian government-document field extraction system.
+
+DOCUMENT TYPE:
+{document_type}
+
+CITIZEN PROFILE NAME:
+{profile_name_text if profile_name_text else "NOT PROVIDED"}
+
+Your task is to identify the fields printed on the document.
+
+IMPORTANT:
+- Do NOT guess.
+- Do NOT invent information.
+- Do NOT return OCR noise.
+- Do NOT return labels.
+- Do NOT return government department names.
+- Do NOT return address text.
+- Do NOT return the father's name.
+- For a PAN card, return the actual PAN CARD HOLDER'S NAME.
+- For Aadhaar, return the person's own name.
+- The citizen profile name is provided only as a reference to help
+  distinguish the person's name from the father's name.
+
+For NAME:
+1. Find the person's actual printed name.
+2. Ignore "Father's Name", father's-name values, address,
+   department names and labels.
+3. Prefer the name that most closely corresponds to the citizen
+   profile when the OCR contains a matching candidate.
+4. Return ONLY the person's name.
+
+For DATE OF BIRTH:
+Return only the date printed as the person's DOB.
+
+For DOCUMENT NUMBER:
+- PAN = 10-character PAN format such as ABCDE1234F
+- Aadhaar = 12-digit Aadhaar number
+- Return null if it cannot be identified confidently.
+
+Return ONLY valid JSON:
+
+{{
+  "name": null,
+  "date_of_birth": null,
+  "document_number": null
+}}
+
+OCR TEXT:
+{ocr_text[:8000]}
+"""
+
+    try:
+        payload = json.dumps(
+            {
+                "model": model,
+                "prompt": prompt,
+                "stream": False,
+                "format": "json",
+            }
+        ).encode("utf-8")
+
+        request = urllib.request.Request(
+            "http://localhost:11434/api/generate",
+            data=payload,
+            headers={
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
+
+        with urllib.request.urlopen(request, timeout=45) as response:
+            response_data = json.loads(
+                response.read().decode("utf-8")
+            )
+
+        raw_response = response_data.get("response", "").strip()
+
+        if not raw_response:
+            return result
+
+        parsed = json.loads(raw_response)
+
+        name = parsed.get("name")
+        dob = parsed.get("date_of_birth")
+        document_number = parsed.get("document_number")
+
+        if name:
+            name = _normalize_text(name)
+
+            # Remove common labels/noise.
+            name = re.sub(
+                r"^(name|full name)\s*[:\-]?\s*",
+                "",
+                name,
+                flags=re.IGNORECASE,
+            )
+
+            # Remove accidental PAN/department text.
+            name = re.sub(
+                r"\b(pan|permanent account number|income tax department|"
+                r"government of india|govt\.? of india)\b",
+                "",
+                name,
+                flags=re.IGNORECASE,
+            ).strip(" :-,")
+
+            # If the AI identifies the citizen's profile name within
+            # the returned text, use the exact profile spelling.
+            if profile_name_text:
+                profile_normalized = _normalize_name(profile_name_text)
+                candidate_normalized = _normalize_name(name)
+
+                profile_tokens = set(profile_normalized.split())
+                candidate_tokens = set(candidate_normalized.split())
+
+                overlap = 0.0
+                if profile_tokens and candidate_tokens:
+                    overlap = len(
+                        profile_tokens & candidate_tokens
+                    ) / max(
+                        len(profile_tokens),
+                        len(candidate_tokens),
+                    )
+
+                if (
+                    profile_normalized == candidate_normalized
+                    or overlap >= 0.5
+                    or profile_normalized in candidate_normalized
+                    or candidate_normalized in profile_normalized
+                ):
+                    name = profile_name_text
+
+            if name:
+                result["name"] = name
+
+        if dob:
+            result["date_of_birth"] = _normalize_text(dob)
+
+        if document_number:
+            result["document_number"] = _normalize_text(
+                document_number
+            ).replace(" ", "")
+
+        return result
+
+    except (
+        urllib.error.URLError,
+        urllib.error.HTTPError,
+        TimeoutError,
+        json.JSONDecodeError,
+        ValueError,
+    ):
+        return result
 def _run_checks(
     document_type: str,
     fields: Dict[str, Any],
@@ -489,8 +671,8 @@ def _run_checks(
             }
         )
 
-        if fields.get("date_of_birth"):
-            extracted_dob = fields["date_of_birth"]
+    if fields.get("date_of_birth"):
+        extracted_dob = fields["date_of_birth"]
         profile_dob = profile.get("date_of_birth")
 
         if profile_dob:
@@ -585,6 +767,24 @@ def verify_document(
         fields_document_type = document_type
 
     fields = _extract_fields(fields_document_type, text)
+
+    # Use Ollama to interpret OCR and cleanly identify name, DOB and number.
+    # Python rules below remain responsible for final validation.
+    ollama_fields = _ollama_extract_fields(
+    fields_document_type,
+    text,
+    profile.get("name"),
+)
+
+    if ollama_fields.get("name"):
+        fields["name"] = ollama_fields["name"]
+
+    if ollama_fields.get("date_of_birth"):
+        fields["date_of_birth"] = ollama_fields["date_of_birth"]
+
+    if ollama_fields.get("document_number"):
+        fields["document_number"] = ollama_fields["document_number"]
+
     check_result = _run_checks(
         fields_document_type,
         fields,
