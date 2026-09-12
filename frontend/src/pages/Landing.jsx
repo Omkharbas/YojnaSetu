@@ -85,7 +85,7 @@ export default function Landing() {
 
           <p className="mx-auto mt-7 max-w-4xl text-lg leading-8 text-slate-500 sm:text-xl">
 
-            CivicBenefit AI analyzes your profile, identifies eligible
+            YojnaSetu analyzes your profile, identifies eligible
             schemes, detects conflicts, and builds a personalized,
             optimized application plan.
 
@@ -211,9 +211,9 @@ export default function Landing() {
             </h2>
 
             <p className="mt-2 text-sm leading-6 text-slate-500">
-              Your profile is evaluated against scheme eligibility
-              conditions to identify benefits relevant to you.
-            </p>
+  Instead of simply listing schemes, YojnaSetu
+  creates a practical combination of benefits.
+</p>
 
           </div>
 
@@ -255,7 +255,7 @@ export default function Landing() {
             </h2>
 
             <p className="mt-2 text-sm leading-6 text-slate-500">
-              Instead of simply listing schemes, CivicBenefit AI
+              Instead of simply listing schemes, YojnaSetu
               creates a practical combination of benefits.
             </p>
 
@@ -285,7 +285,7 @@ export default function Landing() {
             </h2>
 
             <p className="mt-3 text-slate-500">
-              CivicBenefit AI takes you through the complete
+              YojnaSetu takes you through the complete
               benefits-discovery process.
             </p>
 
