@@ -1,0 +1,10 @@
+fastapi
+uvicorn
+pydantic
+python-multipart
+pillow
+pytesseract
+PyMuPDF
+requests
+langchain
+langchain-core
